@@ -25,4 +25,4 @@ class MapUpdaterComponent(ApplicationSession):
     def onUploadFinished(self, mapFilenames):
         print 'Remote update triggered.'
         self.mapUpdater.checkMaps(
-            [f + '.bz2' for f in mapFilenames if f.endswith('.bsp')])
+            [f for f in mapFilenames if f.endswith('.bsp')])
