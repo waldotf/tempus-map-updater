@@ -15,7 +15,7 @@ class MapUpdaterComponent(ApplicationSession):
     def onJoin(self, details):
         print 'Component connected.'
         self.mapUpdater.checkMaps()
-        self.subscribe(self.onUploadFinished, 'xyz.tempus2.mapupload.upload_finished')
+        self.subscribe(self.onUploadFinished, 'xyz.tempus.mapupload.upload_finished')
 
 
     def onLeave(self, details):

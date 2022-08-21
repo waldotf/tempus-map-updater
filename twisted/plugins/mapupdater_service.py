@@ -14,8 +14,16 @@ from twisted.python import usage
 from zope.interface import implements
 
 from mapupdater.component import MapUpdaterComponent
-from mapupdater.updater import WebListUpdater
+from mapupdater.updater import S3Updater, WebListUpdater
 
+
+
+class S3Options(usage.Options):
+    optParameters = (
+        [ ['list-url', None, None, 'S3 bucket URL to get file list.']
+        , ['fetch-url', None, None, 'S3 bucket or cloudfront configuration URL to fetch maps from.']
+        , ['key-prefix', None, None, 'S3 object prefix to match.']
+        ])
 
 
 
@@ -39,7 +47,8 @@ class Options(usage.Options):
         ])
 
     subCommands = (
-        [['weblist', None, WebListOptions, 'Web list updater.']
+        [ ['s3', None, S3Options, 'S3 updater.']
+        , ['weblist', None, WebListOptions, 'Web list updater.']
         ])
 
 
@@ -51,7 +60,15 @@ class MapUpdaterServiceMaker(object):
     options = Options
 
     def makeService(self, options):
-        if options.subCommand == 'weblist':
+        if options.subCommand == 's3':
+            subOptions = options.subOptions
+            mapUpdater = S3Updater(options['maps-path'],
+                                   subOptions['fetch-url'],
+                                   options['delete'],
+                                   options['tf-level-sounds'],
+                                   subOptions['list-url'],
+                                   subOptions['key-prefix'])
+        elif options.subCommand == 'weblist':
             subOptions = options.subOptions
             mapUpdater = WebListUpdater(options['maps-path'],
                                         subOptions['fetch-url'],
@@ -59,7 +76,7 @@ class MapUpdaterServiceMaker(object):
                                         options['tf-level-sounds'])
         else:
             print options
-            raise ValueError('Sub-command must be "weblist".')
+            raise ValueError('Sub-command must be "s3" or "weblist".')
 
         s = MultiService()
 
