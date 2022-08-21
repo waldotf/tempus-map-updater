@@ -27,6 +27,8 @@ class MapUpdater(object):
         self.tfLevelSounds = tfLevelSounds
         self.semaphore = DeferredSemaphore(1)
         self.downloadSemaphore = DeferredSemaphore(4)
+        for fp in self.downloadTempPath.globChildren('*.bsp.bz2'):
+            fp.remove()
 
 
     def checkMaps(self, *a, **kw):
@@ -43,7 +45,7 @@ class MapUpdater(object):
             remoteMapsLower = [f.lower() for f in remoteMaps]
             ourMaps = filter(lambda p: not p.isdir() and p.path.endswith('.bsp'),
                              self.mapsPath.children())
-            ourMapFilenames = [p.basename().lower() for p in ourMaps]
+            ourMapFilenames = [p.basename().lower() + '.bz2' for p in ourMaps]
 
             missing = []
             for f in remoteMaps:
@@ -52,7 +54,7 @@ class MapUpdater(object):
 
             delete = []
             for p in ourMaps:
-                filename = p.basename().lower()
+                filename = p.basename().lower() + '.bz2'
                 if filename not in remoteMapsLower:
                     delete.append(p)
 
@@ -88,16 +90,32 @@ class MapUpdater(object):
 
 
     def _fetchMap(self, filename):
-        mapsPath = self.mapsPath
+        downloadTempPath = self.downloadTempPath
+        if not downloadTempPath.exists():
+            downloadTempPath.makedirs()
 
         def _cb(response, fn):
-            tp = mapsPath.child(fn)
+            tp = downloadTempPath.child(fn)
             fd = tp.open('wb')
+
+            def _extracted(ignored):
+                extractedPath = tp.sibling(tp.basename().replace('.bz2', ''))
+                extractedPath.moveTo(
+                    self.mapsPath.child(tp.basename().replace('.bz2', '')))
+                try:
+                    tp.remove()
+                # File already gone
+                except OSError:
+                    pass
+                print 'Finished downloading {}'.format(fn)
 
             def _finished(ignored):
                 fd.close()
-                print 'Finished downloading {}'.format(fn)
-                return 0
+                d = getProcessOutputAndValue(
+                    'aunpack', (tp.path, '-X', downloadTempPath.path))
+                d.addErrback(log.err)
+                d.addCallback(_extracted)
+                return d
 
             def _eb(failure):
                 print 'Error downloading {}:'.format(fn)
@@ -159,8 +177,59 @@ class WebListUpdater(MapUpdater):
         remoteMaps = []
         for link in soup.find_all('a'):
             href = link.get('href')
-            if href.endswith('bsp') and '/' not in href:
+            if href.endswith('bsp.bz2') and '/' not in href:
                 remoteMaps.append(href.encode())
 
         return remoteMaps
 
+
+
+class S3Updater(MapUpdater):
+    def __init__(self, mapsPath, fetchURL, deleteIfNotPresent, tfLevelSounds,
+            listURL, keyPrefix):
+        MapUpdater.__init__(self, mapsPath, fetchURL, deleteIfNotPresent,
+                            tfLevelSounds)
+        assert isinstance(listURL, str) and len(listURL)
+        assert isinstance(keyPrefix, str) and len(keyPrefix)
+        self.listURL = URLPath.fromString(listURL)
+        self.keyPrefix = keyPrefix
+
+
+    @inlineCallbacks
+    def getMapList(self):
+        response = yield treq.get(str(self.listURL))
+        xml = yield response.text()
+
+        if response.code >= 400:
+            print xml
+            raise Error(response.code)
+
+        remoteMaps = self.parseMapList(xml)
+        returnValue(remoteMaps)
+
+
+    def parseMapList(self, xml):
+        namespace = '{http://s3.amazonaws.com/doc/2006-03-01/}'
+
+        tree = ElementTree.parse(StringIO(xml))
+        root = tree.getroot()
+
+        if root.tag != namespace + 'ListBucketResult':
+            raise ValueError('Response returned wrong XML')
+
+        remoteMaps = []
+        for contents in root.findall(namespace + 'Contents'):
+            for key in contents.findall(namespace + 'Key'):
+                text = key.text
+                if text.startswith(self.keyPrefix) and text.lower().endswith('.bsp.bz2'):
+                    filename = text.replace(self.keyPrefix, '')
+                    if len(filename.split('/')) > 1:
+                        continue
+                    remoteMaps.append(filename)
+
+        if not len(remoteMaps):
+            # Something probably went horribly wrong if there's no result...
+            print xml
+            raise ValueError('No maps found at remote server.')
+
+        return remoteMaps
