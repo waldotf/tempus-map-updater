@@ -161,10 +161,11 @@ class WebListUpdater(MapUpdater):
     @inlineCallbacks
     def getMapList(self):
         try:
-            yield self._getMapList()
+            returnV = yield self._getMapList()
         except:
             sleep(5)
-            yield self.getMapList()
+            returnV = yield self.getMapList()
+        returnValue(returnV)
 
     @inlineCallbacks
     def _getMapList(self):
