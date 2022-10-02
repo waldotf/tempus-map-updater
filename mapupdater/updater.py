@@ -13,7 +13,7 @@ from twisted.python.filepath import FilePath
 from twisted.python.urlpath import URLPath
 from twisted.python import log
 from twisted.web.error import Error
-
+from time import sleep
 
 
 class MapUpdater(object):
@@ -160,6 +160,14 @@ class MapUpdater(object):
 class WebListUpdater(MapUpdater):
     @inlineCallbacks
     def getMapList(self):
+        try:
+            return _getMapList(self)
+        except:
+            sleep(5)
+            return getMapList(self)
+
+    @inlineCallbacks
+    def _getMapList(self):
         response = yield treq.get(str(self.fetchURL))
         html = yield response.text()
 
